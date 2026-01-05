@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getValidRoadTypes, getRoadTypeGeoJSON } from '../services/api';
+import { getAllRoadTypes, getRoadTypeGeoJSON } from '../services/api';
 import type { GeoJSON } from '../types/api';
 
 interface RoadTypeViewerProps {
@@ -15,7 +15,7 @@ const RoadTypeViewer: React.FC<RoadTypeViewerProps> = ({ onRoadTypeSelect }) => 
   useEffect(() => {
     const fetchRoadTypes = async () => {
       try {
-        const types = await getValidRoadTypes();
+        const types = await getAllRoadTypes();
         setRoadTypes(types);
       } catch (error) {
         console.error('Error fetching road types:', error);
@@ -57,10 +57,10 @@ const RoadTypeViewer: React.FC<RoadTypeViewerProps> = ({ onRoadTypeSelect }) => 
       borderRadius: '8px',
       boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
       maxWidth: '300px',
-      maxHeight: '500px',
-      overflow: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexShrink: 0 }}>
         <h3 style={{ margin: 0, fontSize: '18px' }}>Road Types</h3>
         <button
           onClick={() => setIsOpen(!isOpen)}
@@ -78,7 +78,12 @@ const RoadTypeViewer: React.FC<RoadTypeViewerProps> = ({ onRoadTypeSelect }) => 
       </div>
 
       {isOpen && (
-        <div>
+        <div style={{ 
+          overflowY: 'auto', 
+          overflowX: 'hidden',
+          maxHeight: '500px',
+          flex: 1,
+        }}>
           {loading && <div style={{ marginBottom: '10px', fontSize: '12px', color: '#666' }}>Loading...</div>}
           <div style={{ marginBottom: '10px', fontSize: '12px', color: '#666' }}>
             Select a road type to view on the map:

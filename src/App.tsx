@@ -27,52 +27,70 @@ function App() {
   const [blockages, setBlockages] = useState<any[]>([]);
   const [blockageFormOpen, setBlockageFormOpen] = useState(false);
 
+  // Reusable function to load and process blockages
+  const loadBlockages = async () => {
+    try {
+      const geoJSON = await getAllBlockages();
+      setBlockagesGeoJSON(geoJSON);
+      
+      // Extract blockage list from GeoJSON
+      if (geoJSON.features && Array.isArray(geoJSON.features)) {
+        const blockageList = geoJSON.features.map((feature) => {
+          try {
+            const props = feature.properties || {};
+            let coords: number[] = [0, 0];
+            if (feature.geometry.type === 'Point') {
+              coords = feature.geometry.coordinates as unknown as number[];
+            } else if (feature.geometry.type === 'Polygon') {
+              const polygonCoords = feature.geometry.coordinates as unknown as number[][][];
+              if (polygonCoords[0] && polygonCoords[0].length > 0) {
+                // Calculate center point of polygon
+                let sumLng = 0, sumLat = 0, count = 0;
+                polygonCoords[0].forEach((coord) => {
+                  if (coord && coord.length >= 2 && isFinite(coord[0]) && isFinite(coord[1])) {
+                    sumLng += coord[0];
+                    sumLat += coord[1];
+                    count++;
+                  }
+                });
+                if (count > 0) {
+                  coords = [sumLng / count, sumLat / count];
+                }
+              }
+            }
+            
+            return {
+              name: props.name || 'Unknown',
+              point: {
+                long: coords[0],
+                lat: coords[1],
+              },
+              radius: props["distance (meters)"] ?? 200,
+              description: props.description || '',
+            };
+          } catch (error) {
+            console.error('Error processing blockage feature:', error, feature);
+            return null;
+          }
+        }).filter((b): b is NonNullable<typeof b> => b !== null);
+        
+        setBlockages(blockageList);
+      } else {
+        setBlockages([]);
+      }
+    } catch (error) {
+      console.error('Error loading blockages:', error);
+      throw error;
+    }
+  };
+
   // Load blockages on mount
   useEffect(() => {
-    const loadBlockages = async () => {
-      try {
-        const geoJSON = await getAllBlockages();
-        setBlockagesGeoJSON(geoJSON);
-        
-        // Extract blockage list from GeoJSON
-        if (geoJSON.features && Array.isArray(geoJSON.features)) {
-          const blockageList = geoJSON.features.map((feature) => {
-            try {
-              const props = feature.properties || {};
-              // Blockages come as Point geometry
-              let coords: number[] = [0, 0];
-              if (feature.geometry.type === 'Point') {
-                coords = feature.geometry.coordinates as unknown as number[];
-              }
-              
-              return {
-                name: props.name || 'Unknown',
-                point: {
-                  long: coords[0],
-                  lat: coords[1],
-                },
-                radius: props["distance (meters)"] ?? 200,
-                description: props.description || '',
-              };
-            } catch (error) {
-              console.error('Error processing blockage feature:', error, feature);
-              return null;
-            }
-          }).filter((b): b is NonNullable<typeof b> => b !== null);
-          
-          setBlockages(blockageList);
-        } else {
-          setBlockages([]);
-        }
-      } catch (error) {
-        console.error('Error loading blockages:', error);
-        // Don't show error to user on initial load - server might not be ready yet
-      }
-    };
-    
     // Wait a bit before loading blockages to let server initialize
     const timer = setTimeout(() => {
-      loadBlockages();
+      loadBlockages().catch(() => {
+        // Don't show error to user on initial load - server might not be ready yet
+      });
     }, 2000);
     
     return () => clearTimeout(timer);
@@ -114,63 +132,8 @@ function App() {
   const handleAddBlockage = async (blockage: BlockageRequest) => {
     try {
       await addBlockage(blockage);
-      // Reload blockages
-      const geoJSON = await getAllBlockages();
-      console.log('Reloaded blockages after add:', geoJSON);
-      
-      // Validate GeoJSON structure
-      if (!geoJSON || typeof geoJSON !== 'object') {
-        console.error('Invalid GeoJSON response:', geoJSON);
-        alert('Failed to reload blockages. Invalid response from server.');
-        return;
-      }
-
-      setBlockagesGeoJSON(geoJSON);
-      
-      if (geoJSON.features && Array.isArray(geoJSON.features)) {
-        const blockageList = geoJSON.features.map((feature) => {
-          try {
-            const props = feature.properties || {};
-            let coords: number[] = [0, 0];
-            if (feature.geometry.type === 'Point') {
-              coords = feature.geometry.coordinates as unknown as number[];
-            } else if (feature.geometry.type === 'Polygon') {
-              const polygonCoords = feature.geometry.coordinates as unknown as number[][][];
-              if (polygonCoords[0] && polygonCoords[0].length > 0) {
-                // Calculate center point of polygon
-                let sumLng = 0, sumLat = 0, count = 0;
-                polygonCoords[0].forEach((coord) => {
-                  if (coord && coord.length >= 2 && isFinite(coord[0]) && isFinite(coord[1])) {
-                    sumLng += coord[0];
-                    sumLat += coord[1];
-                    count++;
-                  }
-                });
-                if (count > 0) {
-                  coords = [sumLng / count, sumLat / count];
-                }
-              }
-            }
-            
-            return {
-              name: props.name || 'Unknown',
-              point: {
-                long: coords[0],
-                lat: coords[1],
-              },
-              radius: props["distance (meters)"] ?? 200,
-              description: props.description || '',
-            };
-          } catch (error) {
-            console.error('Error processing blockage feature:', error, feature);
-            return null;
-          }
-        }).filter((b): b is NonNullable<typeof b> => b !== null);
-        
-        setBlockages(blockageList);
-      } else {
-        setBlockages([]);
-      }
+      // Reload blockages to refresh the list
+      await loadBlockages();
     } catch (error) {
       console.error('Error adding blockage:', error);
       alert('Failed to add blockage. Please try again.');
@@ -178,79 +141,13 @@ function App() {
   };
 
   const handleDeleteBlockage = async (name: string) => {
-    console.log('handleDeleteBlockage called with name:', name);
     try {
       await deleteBlockage(name);
-      console.log('Blockage deleted successfully, reloading...');
-      
-      // Reload blockages
-      const geoJSON = await getAllBlockages();
-      console.log('Reloaded blockages after delete:', geoJSON);
-      
-      // Validate GeoJSON structure
-      if (!geoJSON || typeof geoJSON !== 'object') {
-        console.error('Invalid GeoJSON response:', geoJSON);
-        alert('Failed to reload blockages. Invalid response from server.');
-        return;
-      }
-
-      // Always update the GeoJSON state (even if empty)
-      setBlockagesGeoJSON(geoJSON);
-      
-      // Process blockage list
-      if (geoJSON.features && Array.isArray(geoJSON.features)) {
-        const blockageList = geoJSON.features.map((feature) => {
-          try {
-            const props = feature.properties || {};
-            let coords: number[] = [0, 0];
-            if (feature.geometry.type === 'Point') {
-              coords = feature.geometry.coordinates as unknown as number[];
-            } else if (feature.geometry.type === 'Polygon') {
-              const polygonCoords = feature.geometry.coordinates as unknown as number[][][];
-              if (polygonCoords[0] && polygonCoords[0].length > 0) {
-                // Calculate center point of polygon
-                let sumLng = 0, sumLat = 0, count = 0;
-                polygonCoords[0].forEach((coord) => {
-                  if (coord && coord.length >= 2 && isFinite(coord[0]) && isFinite(coord[1])) {
-                    sumLng += coord[0];
-                    sumLat += coord[1];
-                    count++;
-                  }
-                });
-                if (count > 0) {
-                  coords = [sumLng / count, sumLat / count];
-                }
-              }
-            }
-            
-            return {
-              name: props.name || 'Unknown',
-              point: {
-                long: coords[0],
-                lat: coords[1],
-              },
-              radius: props["distance (meters)"] ?? 200,
-              description: props.description || '',
-            };
-          } catch (error) {
-            console.error('Error processing blockage feature:', error, feature);
-            return null;
-          }
-        }).filter((b): b is NonNullable<typeof b> => b !== null);
-        
-        console.log('Setting blockage list to:', blockageList);
-        setBlockages(blockageList);
-      } else {
-        // No features means no blockages - explicitly set empty array
-        console.log('No features found, setting empty blockage list');
-        setBlockages([]);
-      }
-    } catch (error: any) {
+      // Reload blockages to refresh the list
+      await loadBlockages();
+    } catch (error) {
       console.error('Error deleting blockage:', error);
-      const errorMessage = error?.response?.data?.message || error?.message || 'Unknown error';
-      const errorStatus = error?.response?.status;
-      console.error('Error details - Status:', errorStatus, 'Message:', errorMessage);
-      alert(`Failed to delete blockage: ${errorMessage || 'Please try again.'}`);
+      alert('Failed to delete blockage. Please try again.');
     }
   };
 
